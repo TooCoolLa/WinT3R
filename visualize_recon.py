@@ -67,6 +67,12 @@ def main():
 
             # 计算 Camera-to-World (C2W)
             w2c = poses[cam_idx]
+            if w2c.shape == (3, 4):
+                # 补齐为 4x4 矩阵
+                w2c_4x4 = np.eye(4)
+                w2c_4x4[:3, :4] = w2c
+                w2c = w2c_4x4
+                
             c2w = np.linalg.inv(w2c)
 
             # 1. 过滤低置信度点
