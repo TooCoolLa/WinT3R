@@ -79,6 +79,15 @@ def main():
                     w2c_tmp = np.eye(4); w2c_tmp[:3, :4] = w2c; w2c = w2c_tmp
                 c2w = np.linalg.inv(w2c)
 
+                # 修正 Viser 相机朝向 (OpenCV 坐标系 -> Viser 视锥体坐标系)
+                # 绕 Y 轴旋转 180 度
+                R_fix = np.array([
+                    [-1, 0,  0],
+                    [ 0, 1,  0],
+                    [ 0, 0, -1]
+                ])
+                R_corrected = c2w[:3, :3] @ R_fix
+
                 # 点云过滤逻辑
                 # 1. 置信度过滤
                 mask = conf > conf_slider.value
@@ -105,7 +114,7 @@ def main():
                     f"/cameras/frame_{f_idx}",
                     fov=2 * np.arctan(320 / (2 * 500)),
                     aspect=1.0, scale=0.05,
-                    wxyz=tf.SO3.from_matrix(c2w[:3, :3]).wxyz,
+                    wxyz=tf.SO3.from_matrix(R_corrected).wxyz,
                     position=c2w[:3, 3]
                 )
                 server.scene.add_point_cloud(
