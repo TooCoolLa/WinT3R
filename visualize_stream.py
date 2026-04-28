@@ -35,8 +35,8 @@ def main():
     # GUI 元素
     gui_info = server.gui.add_text("Status", initial_value="Waiting for client...", disabled=True)
     gui_progress = server.gui.add_text("Progress", initial_value="0/0", disabled=True)
-    btn_start = server.gui.add_button("Start Streaming", icon=viser.Icon.PLAY_INTERPOLATE)
-    btn_reset = server.gui.add_button("Clear Scene", icon=viser.Icon.TRASH)
+    btn_start = server.gui.add_button("Start Streaming")
+    btn_reset = server.gui.add_button("Clear Scene")
     speed_slider = server.gui.add_slider("Streaming Speed (s)", min=0.0, max=1.0, step=0.05, initial_value=0.1)
     point_size_slider = server.gui.add_slider("Point Size", min=0.001, max=0.05, step=0.001, initial_value=0.005)
 
