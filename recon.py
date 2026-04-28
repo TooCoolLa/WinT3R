@@ -200,23 +200,31 @@ def main():
                     state_feat = new_state_feat # 更新记忆
                     
                     # D. 提取头部的输出结果
+                    # dec[-1] 形状通常为 (B, S*P, C)，需要恢复为 (B, S, P, C)
                     dec_final = dec[-1]
-                    if dec_final.ndim == 3: dec_final = dec_final.unsqueeze(0)
-                    B, S, P, C = dec_final.shape
+                    if dec_final.ndim == 2: dec_final = dec_final.unsqueeze(0) # (1, S*P, C)
+                    
+                    B, Total_P, C = dec_final.shape
+                    S = args.window_size
+                    P = Total_P // S
+                    dec_final = dec_final.view(B, S, P, C)
                     
                     f_img_local_final = f_img_local
-                    if f_img_local_final.ndim == 3: f_img_local_final = f_img_local_final.unsqueeze(0)
+                    if f_img_local_final.ndim == 2: f_img_local_final = f_img_local_final.unsqueeze(0)
+                    f_img_local_final = f_img_local_final.view(B, S, P, C)
                     
                     # 相机特征池 (用于后期全局位姿优化)
+                    # 提取每帧的第一个 token (camera token)
                     camera_token = torch.cat([dec_final[:, :, 0], f_img_local_final[:, :, 0]], dim=-1)
                     camera_embed_list.append(camera_token)
                     
                     # 获取局部点云和置信度 (PtsHead)
+                    # 剔除第一个 token，剩余 P-1 个 image tokens
                     head_input = [
-                        f_img_local_final[:, :, 1:].float().reshape(-1, P-1, C),
-                        dec_final[:, :, 1:].float().reshape(-1, P-1, C)
+                        f_img_local_final[:, :, 1:].reshape(-1, P-1, C).float(),
+                        dec_final[:, :, 1:].reshape(-1, P-1, C).float()
                     ]
-                    # 必须拼接当前窗口所有图像以匹配 head_input 的第一维度 (BatchSize)
+                    # 必须拼接当前窗口所有图像以匹配 head_input 的第一维度 (BatchSize = B_raw * S)
                     all_imgs = torch.cat([v["img"] for v in active_views], dim=0)
                     with torch.amp.autocast(device_type='cuda', enabled=False):
                         pts_res = model.pts_head(head_input, all_imgs)
