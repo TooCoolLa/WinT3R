@@ -37,8 +37,15 @@ def main():
     gui_progress = server.gui.add_text("Progress", initial_value="0/0", disabled=True)
     btn_start = server.gui.add_button("Start Streaming")
     btn_reset = server.gui.add_button("Clear Scene")
-    speed_slider = server.gui.add_slider("Streaming Speed (s)", min=0.0, max=1.0, step=0.05, initial_value=0.1)
-    point_size_slider = server.gui.add_slider("Point Size", min=0.001, max=0.05, step=0.001, initial_value=0.005)
+    
+    with server.gui.add_folder("Filter Settings"):
+        conf_slider = server.gui.add_slider("Conf Thresh", min=0.0, max=100.0, step=0.1, initial_value=5.0)
+        depth_slider = server.gui.add_slider("Max Depth", min=1.0, max=100.0, step=1.0, initial_value=20.0)
+        speed_slider = server.gui.add_slider("Streaming Speed (s)", min=0.0, max=1.0, step=0.05, initial_value=0.05)
+    
+    with server.gui.add_folder("Visual Settings"):
+        point_size_slider = server.gui.add_slider("Point Size", min=0.001, max=0.05, step=0.001, initial_value=0.005)
+        point_shape = server.gui.add_dropdown("Point Shape", options=["square", "circle", "sparkle"], initial_value="circle")
 
     state = {"is_streaming": False, "stop_requested": False}
 
@@ -72,8 +79,12 @@ def main():
                     w2c_tmp = np.eye(4); w2c_tmp[:3, :4] = w2c; w2c = w2c_tmp
                 c2w = np.linalg.inv(w2c)
 
-                # 点云处理
-                mask = conf > args.conf_thresh
+                # 点云过滤逻辑
+                # 1. 置信度过滤
+                mask = conf > conf_slider.value
+                # 2. 局部深度过滤 (通常 z 轴代表深度)
+                mask &= (pts_local[..., 2] < depth_slider.value) 
+                
                 sel_pts = pts_local[mask]
                 if len(sel_pts) == 0: continue
                 
@@ -100,7 +111,8 @@ def main():
                 server.scene.add_point_cloud(
                     f"/points/frame_{f_idx}",
                     points=pts_world, colors=sel_cols,
-                    point_size=point_size_slider.value
+                    point_size=point_size_slider.value,
+                    point_shape=point_shape.value
                 )
 
                 gui_progress.value = f"{i+1}/{len(npz_files)}"
