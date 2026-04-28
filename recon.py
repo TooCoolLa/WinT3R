@@ -40,12 +40,13 @@ class ImageLoaderThread(threading.Thread):
         self.daemon = True
 
     def run(self):
-        from dust3r.utils.image import _load_from_dir, _load_from_video, img_unnormalized
+        from dust3r.utils.image import CustomNorm
         
         # 获取文件列表
         if os.path.isdir(self.data_path):
-            images_list = sorted(_load_from_dir(self.data_path))
+            images_list = sorted([os.path.join(self.data_path, f) for f in os.listdir(self.data_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
         elif os.path.isfile(self.data_path):
+            from dust3r.utils.image import _load_from_video
             images_list = _load_from_video(self.data_path, self.interval)
         else:
             print(f"Error: 路径 {self.data_path} 不存在")
@@ -63,7 +64,7 @@ class ImageLoaderThread(threading.Thread):
                 img = img.resize((new_W, new_H), resample=Image.LANCZOS)
                 
                 # 预处理为 Tensor
-                img_tensor = img_unnormalized(img)[None] # (1, 3, H, W)
+                img_tensor = CustomNorm(img)[None] # (1, 3, H, W)
                 true_shape = torch.tensor([[new_H, new_W]])
                 
                 item = {
@@ -101,7 +102,25 @@ def main():
 
     # 1. 加载模型
     print(f"正在加载模型: {args.ckpt}")
-    model = load_model(args.ckpt, args.device)
+    # 手动实例化模型以匹配 state_dict 格式
+    model = WinT3R(
+        state_size=1024,
+        state_pe="2d",
+        pos_embed="RoPE100",
+        patch_embed_cls="ManyAR_PatchEmbed",
+        img_size=[512, 512],
+        head_type="conv",
+        enc_embed_dim=1024,
+        enc_depth=24,
+        enc_num_heads=16,
+        dec_embed_dim=768,
+        dec_depth=12,
+        dec_num_heads=12,
+        landscape_only=False,
+    ).to(args.device)
+
+    weights = torch.load(args.ckpt, map_location=args.device)
+    model.load_state_dict(weights, strict=False)
     model.eval()
     model.window_size = args.window_size
     stride = args.window_size // 2
@@ -181,9 +200,12 @@ def main():
                     state_feat = new_state_feat # 更新记忆
                     
                     # D. 提取头部的输出结果
-                    B, S, P, C = dec[-1].shape
-                    dec_final = dec[-1].reshape(B, S, P, C)
-                    f_img_local_final = f_img_local.reshape(B, S, P, C)
+                    dec_final = dec[-1]
+                    if dec_final.ndim == 3: dec_final = dec_final.unsqueeze(0)
+                    B, S, P, C = dec_final.shape
+                    
+                    f_img_local_final = f_img_local
+                    if f_img_local_final.ndim == 3: f_img_local_final = f_img_local_final.unsqueeze(0)
                     
                     # 相机特征池 (用于后期全局位姿优化)
                     camera_token = torch.cat([dec_final[:, :, 0], f_img_local_final[:, :, 0]], dim=-1)
@@ -194,8 +216,10 @@ def main():
                         f_img_local_final[:, :, 1:].float().reshape(-1, P-1, C),
                         dec_final[:, :, 1:].float().reshape(-1, P-1, C)
                     ]
+                    # 必须拼接当前窗口所有图像以匹配 head_input 的第一维度 (BatchSize)
+                    all_imgs = torch.cat([v["img"] for v in active_views], dim=0)
                     with torch.amp.autocast(device_type='cuda', enabled=False):
-                        pts_res = model.pts_head(head_input, active_views[0]["img"])
+                        pts_res = model.pts_head(head_input, all_imgs)
                     
                     current_pts = pts_res['pts_local'].reshape(B, S, *pts_res['pts_local'].shape[1:])
                     current_conf = pts_res['conf'].reshape(B, S, *pts_res['conf'].shape[1:])
